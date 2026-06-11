@@ -1,0 +1,127 @@
+# =============================================================================
+# AdRank-ML — central configuration
+#
+# Everything downstream (data generation, features, models, auction, backtest)
+# reads from this file via adrank.config.load_config(). Two profiles are
+# provided: the default values target a fast, fully-runnable local pipeline;
+# the `scale.profile: prod` block documents the full 100M-impression target
+# described in the project summary.
+# =============================================================================
+
+seed: 1234
+
+scale:
+  # `demo`  -> a few million impressions, runs end-to-end on a laptop in minutes.
+  # `prod`  -> the full target (100M impressions). Same code path; just bigger.
+  profile: demo
+
+  demo:
+    n_campaigns: 120
+    n_keywords: 18000
+    n_users: 250000
+    n_days: 30
+    impressions: 3000000      # ~3M for a quick but statistically stable run
+
+  prod:
+    n_campaigns: 120
+    n_keywords: 18000
+    n_users: 8000000
+    n_days: 90
+    impressions: 100000000    # 100M impressions, 120 campaigns, 18K keywords
+
+# -----------------------------------------------------------------------------
+# Data-generating process (the synthetic "ground truth"). These knobs control
+# how much learnable signal vs. irreducible noise the labels carry, which in
+# turn determines the achievable AUC / logloss / CVR of any model.
+# -----------------------------------------------------------------------------
+dgp:
+  # Click model (CTR)
+  ctr_base_rate: 0.22         # marginal P(click) target
+  ctr_signal_scale: 1.08      # multiplier on the systematic part of the click logit
+  ctr_noise_sd: 0.43          # per-impression latent noise (irreducible) on the logit
+  ctr_day_drift: 0.20         # amplitude of slow, unmodeled day-to-day demand drift
+
+  # Coupling between advertiser bids and latent ad quality (0 = independent).
+  # Higher -> bids already predict clicks, so the bid-only auction baseline is
+  # stronger and quality-aware ranking shows a smaller (more realistic) lift.
+  bid_quality_coupling: 1.78
+
+  # Conversion model (CVR | click)
+  cvr_base_rate: 0.085        # marginal P(conv | click) target
+  cvr_signal_scale: 0.90
+  cvr_noise_sd: 0.65
+
+  # Position bias: examination probability decays with SERP rank (1-indexed).
+  # P(examine | position k) = position_decay ** (k - 1)
+  position_decay: 0.72
+  n_ad_slots: 10              # ads shown per search-result page (top block)
+
+  # How many eligible ads compete per auction (before slotting).
+  eligible_ads_min: 3
+  eligible_ads_max: 14
+
+# -----------------------------------------------------------------------------
+# Feature engineering
+# -----------------------------------------------------------------------------
+features:
+  target_feature_count: 145   # the pipeline asserts it produces exactly this many
+  smoothing_alpha: 20.0       # Bayesian (Krichevsky–Trofimov style) CTR smoothing
+  history_fraction: 0.40      # earliest fraction of days reserved to compute priors
+  hashing_dim: 32             # hash-encoding dimensionality for high-card columns
+
+# -----------------------------------------------------------------------------
+# Modeling
+# -----------------------------------------------------------------------------
+model:
+  # time-based split (no shuffling) to mimic real backtesting
+  valid_fraction: 0.15
+  test_fraction: 0.15
+
+  logistic:
+    C: 0.5
+    max_iter: 300
+    class_weight: null
+
+  gbdt:                        # sklearn HistGradientBoostingClassifier
+    learning_rate: 0.08
+    max_iter: 350
+    max_leaf_nodes: 63
+    min_samples_leaf: 200
+    l2_regularization: 1.0
+    max_bins: 255
+    early_stopping: true
+    validation_fraction: 0.1
+    n_iter_no_change: 25
+
+  calibration:
+    method: isotonic           # isotonic | sigmoid
+    ece_n_bins: 15
+
+# -----------------------------------------------------------------------------
+# GSP-style auction simulation
+# -----------------------------------------------------------------------------
+auction:
+  rank_score: quality          # `quality` = bid * pCTR (Ad Rank); `bid` = bid-only baseline
+  reserve_price: 0.05          # floor CPC
+  min_quality: 0.01
+  topk_metrics: 10             # NDCG@k / CTR@k
+
+# -----------------------------------------------------------------------------
+# BigQuery loading (optional). If credentials/libs are missing the loader writes
+# Parquet to data/processed/bq_export/ instead and logs the equivalent BQ DDL.
+# -----------------------------------------------------------------------------
+bigquery:
+  enabled: false
+  project: your-gcp-project
+  dataset: adrank
+  location: US
+  tables:
+    impressions: impressions_raw
+    features: features_wide
+    predictions: scored_impressions
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  artifacts_dir: data/artifacts
+  reports_dir: data/reports

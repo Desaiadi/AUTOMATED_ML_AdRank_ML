@@ -1,0 +1,23 @@
+# Core ML / data stack
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.4
+scipy>=1.11
+pyarrow>=14.0
+pyyaml>=6.0
+
+# Optional: distributed feature engineering (Databricks-style). Not required to run
+# the local end-to-end pipeline; spark_features.py degrades gracefully if absent.
+# pyspark>=3.5
+
+# Optional: BigQuery loading. The loader falls back to local Parquet if these are
+# absent or no GCP credentials are configured.
+# google-cloud-bigquery>=3.17
+# google-cloud-bigquery-storage>=2.24
+# db-dtypes>=1.2
+
+# Optional: gradient boosting alternative to sklearn's HistGradientBoosting.
+# lightgbm>=4.1
+
+# Dev / test
+pytest>=7.4
