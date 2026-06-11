@@ -133,6 +133,44 @@ def _train_task(task: str, df: pd.DataFrame, feature_cols: list[str],
     }
 
 
+def fit_eval_ctr(df: pd.DataFrame, feature_cols: list[str], cfg: Config) -> dict:
+    """Train + calibrate + evaluate a CTR model on ANY wide frame.
+
+    The frame only needs the `feature_cols`, a `clicked` label, and a `day`
+    column for the time split. This is the dataset-agnostic core reused by the
+    Criteo adapter (and anything else) — identical LR + GBDT + isotonic
+    calibration + AUC/logloss/ECE as the synthetic pipeline.
+    """
+    is_tr, is_va, is_te, split_days = _time_split(
+        df, cfg.model.valid_fraction, cfg.model.test_fraction)
+    X = df[feature_cols].to_numpy(dtype=np.float32)
+    y = df["clicked"].to_numpy(dtype=np.int8)
+    Xtr, ytr, Xva, yva, Xte, yte = (X[is_tr], y[is_tr], X[is_va], y[is_va],
+                                    X[is_te], y[is_te])
+    LOGGER.info("[CTR] train=%s valid=%s test=%s  base_rate=%.4f",
+                f"{len(ytr):,}", f"{len(yva):,}", f"{len(yte):,}", float(ytr.mean()))
+
+    method = cfg.model.calibration.method
+    n_bins = cfg.model.calibration.ece_n_bins
+    results = {}
+    for name, model in _build_models(cfg).items():
+        with timed(f"ctr.{name}.fit", LOGGER):
+            model.fit(Xtr, ytr)
+        raw = classification_report(yte, model.predict_proba(Xte)[:, 1], n_bins)
+        cal_model = _calibrate(model, Xva, yva, method)
+        cal = classification_report(yte, cal_model.predict_proba(Xte)[:, 1], n_bins)
+        for r in (raw, cal):
+            r.pop("_reliability_bins", None)
+        results[name] = {"raw": raw, "calibrated": cal}
+        LOGGER.info("[ctr/%s] raw AUC=%.4f logloss=%.4f ECE=%.4f | "
+                    "cal AUC=%.4f logloss=%.4f ECE=%.4f", name,
+                    raw["auc"], raw["logloss"], raw["ece"],
+                    cal["auc"], cal["logloss"], cal["ece"])
+    return {"results": results, "split_days": split_days,
+            "n_features": len(feature_cols),
+            "headline": results["gbdt"]["calibrated"]}
+
+
 def train(cfg: Config) -> dict:
     proc_dir = Path(cfg.paths["processed_dir"])
     feature_cols = (proc_dir / "feature_list.txt").read_text().splitlines()

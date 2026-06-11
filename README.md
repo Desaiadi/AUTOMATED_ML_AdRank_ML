@@ -215,6 +215,22 @@ vectorized/broadcast aggregates — and reported in `data/reports/timing.json`.
 
 ---
 
+## Running on real data (Criteo)
+
+The CTR half runs on the real **Criteo** datasets unchanged — same LR + GBDT +
+isotonic calibration + walk-forward backtest; only a Criteo loader
+(`src/adrank/data/criteo.py`) and feature builder
+(`src/adrank/features/criteo_features.py`) sit in front.
+
+```bash
+python scripts/run_criteo.py --sample 300000              # validate, no download
+python scripts/run_criteo.py --path /data/criteo/train.txt --nrows 5000000
+```
+
+The conversion model and GSP auction do **not** transfer to Criteo Display/1TB
+(no conversion label, bids, or positions). See **[docs/CRITEO.md](docs/CRITEO.md)**
+for the full mapping of what transfers and why.
+
 ## Configuration
 
 All behavior is driven by `config/config.yaml`: `scale` (demo vs prod, campaign /
